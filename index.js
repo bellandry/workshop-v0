@@ -2,8 +2,11 @@ const express = require("express");
 const { z } = require("zod");
 const { Pool } = require("pg");
 const dotenv = require("dotenv");
-const util = require("util");
+const { Queue } = require("bullmq");
+const connexion = require("./redis");
 dotenv.config();
+
+const ticketQueue = new Queue("ticket-processing", { connection: connexion });
 
 const app = express();
 app.use(express.json());
@@ -29,15 +32,6 @@ const monitorPool = () => {
 };
 
 setInterval(monitorPool, 1000);
-
-// Simulation de la génération du PDF
-const heavyPdfGeneration = (duration) => {
-  const start = Date.now();
-  while (Date.now() - start < duration) {}
-};
-
-// Simulation de l'attente réseau
-setTimeOutPromise = util.promisify(setTimeout);
 
 // schema de validation des utilisateurs
 const userSchema = z.object({
@@ -145,8 +139,19 @@ app.post("/buy-ticket/:id", async (req, res) => {
     ]);
 
     // Génération de la facture en PDF, envoi par mail
-    await setTimeOutPromise(100);
-    heavyPdfGeneration(300);
+    await ticketQueue.add(
+      "generate-and-send",
+      {
+        userId,
+        eventId,
+        quantity,
+        email: user.email,
+      },
+      {
+        attempts: 3,
+        backoff: 5000,
+      },
+    );
 
     res.json({
       message: `Achat terminé avec succès pour l'événement: ${event.name}`,
