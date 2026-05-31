@@ -192,6 +192,9 @@ app.post("/buy-ticket/:id", async (req, res) => {
 
     await client.query("COMMIT");
 
+    // Invalider le cache
+    await connexion.del(`event:${eventId}:stock`);
+
     // Génération de la facture en PDF, envoi par mail
     await ticketQueue.add(
       "generate-and-send",
