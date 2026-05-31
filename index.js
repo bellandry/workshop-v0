@@ -97,13 +97,18 @@ app.post("/users", async (req, res) => {
 });
 
 app.post("/buy-ticket/:id", async (req, res) => {
+  const client = await pool.connect(); // Etablis une connexion dédiée à la transaction
+
   try {
     const validateEvent = eventSchema.parse(req.params);
     const { id: eventId } = validateEvent;
     const validateUser = ticketSchema.parse(req.body);
     const { userId, quantity } = validateUser;
 
-    const checkEvent = await pool.query("SELECT * FROM events WHERE id =$1", [
+    // Début de la transaction
+    await client.query("BEGIN");
+
+    const checkEvent = await client.query("SELECT * FROM events WHERE id =$1", [
       eventId,
     ]);
     const event = checkEvent.rows[0];
@@ -111,7 +116,7 @@ app.post("/buy-ticket/:id", async (req, res) => {
     if (!event)
       return res.status(404).json({ error: "Evenement non trouvé !" });
 
-    const result = await pool.query("SELECT * FROM users WHERE id = $1", [
+    const result = await client.query("SELECT * FROM users WHERE id = $1", [
       userId,
     ]);
     const user = result.rows[0];
@@ -119,24 +124,28 @@ app.post("/buy-ticket/:id", async (req, res) => {
     if (!user)
       return res.status(404).json({ error: "Utilisateur non trouvé !" });
 
-    const checkAvailability = await pool.query(
-      "SELECT total_tickets, sold_tickets FROM events WHERE id = $1",
+    // Sélectio avec vérrou pour possible rollback
+    const checkAvailability = await client.query(
+      "SELECT total_tickets, sold_tickets FROM events WHERE id = $1 FOR UPDATE",
       [eventId],
     );
     const availability = checkAvailability.rows[0];
     const available = availability.total_tickets - availability.sold_tickets;
 
     if (quantity > available) {
+      await client.query("ROLLBACK");
       return res
         .status(400)
         .json({ error: "Désolé, pas assez de billets pour cet événement" });
     }
 
     const newSoldTotal = availability.sold_tickets + quantity;
-    await pool.query("UPDATE events SET sold_tickets = $1 WHERE id = $2", [
+    await client.query("UPDATE events SET sold_tickets = $1 WHERE id = $2", [
       newSoldTotal,
       eventId,
     ]);
+
+    await client.query("COMMIT");
 
     // Génération de la facture en PDF, envoi par mail
     await ticketQueue.add(
@@ -159,10 +168,13 @@ app.post("/buy-ticket/:id", async (req, res) => {
       bought_tickets: quantity,
     });
   } catch (error) {
+    await client.query("ROLLBACK");
     if (error instanceof z.ZodError) {
       return res.status(400).json({ error: "Erreur Zod" + error.errors });
     }
     res.status(500).json({ error: "An error occured" });
+  } finally {
+    client.release();
   }
 });
 
