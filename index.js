@@ -1,20 +1,15 @@
 const express = require("express");
 const { z } = require("zod");
-const { Pool } = require("pg");
 const dotenv = require("dotenv");
 const { Queue } = require("bullmq");
 const connexion = require("./redis");
+const pool = require("./db");
 dotenv.config();
 
 const ticketQueue = new Queue("ticket-processing", { connection: connexion });
 
 const app = express();
 app.use(express.json());
-
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  max: 10,
-});
 
 const monitorPool = () => {
   const total = pool.totalCount;
@@ -93,6 +88,56 @@ app.post("/users", async (req, res) => {
     res
       .status(500)
       .json({ error: "Erreur lors de la création de l'utilisateur" });
+  }
+});
+
+app.get("/event-tickets/:id", async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const validateEvent = eventSchema.parse(req.params);
+    const { id: eventId } = validateEvent;
+
+    // Vérifier la disponibilité dans le cache et retourner si oui
+    const cachedStock = await connexion.get(`event:${eventId}:stock`);
+    if (cachedStock) {
+      return res.json({
+        source: "cache",
+        data: parseInt(cachedStock),
+        memoryUsage: process.memoryUsage(),
+      });
+    }
+
+    // Sinon, on lit sur le disque
+    const result = await client.query(
+      "SELECT total_tickets, sold_tickets FROM events WHERE id = $1",
+      [eventId],
+    );
+    if (!result.rows[0]) {
+      return res.status(404).json({
+        source: "database",
+        message: "Evenement non trouvé !",
+        memoryUsage: process.memoryUsage(),
+      });
+    }
+
+    const available =
+      result.rows[0].total_tickets - result.rows[0].sold_tickets;
+
+    // Sauvegarder l'information dans le cache
+    await connexion.setex(`event:${eventId}:stock`, 30, available);
+
+    res.json({
+      source: "database",
+      data: available,
+      memoryUsage: process.memoryUsage(),
+    });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: "Erreur Zod" + error.errors });
+    }
+    res.status(500).json({ error: "An error occured" });
+  } finally {
+    client.release();
   }
 });
 
