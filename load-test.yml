@@ -1,8 +1,8 @@
 config:
   target: "http://localhost:3000"
   phases:
-    - duration: 10
-      arrivalRate: 50 # 50 requêtes par seconde pendant 2 minutes secondes (500 requêtes total)
+    - duration: 120
+      arrivalRate: 100 # 50 requêtes par seconde pendant 2 minutes secondes (500 requêtes total)
       name: "Ouverture de la billetterie"
 
 scenarios:

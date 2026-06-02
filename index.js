@@ -228,6 +228,30 @@ app.post("/buy-ticket/:id", async (req, res) => {
 
 const PORT = 3000;
 
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log("Serveur démarré sur le port 3000");
 });
+
+const gracefullShutdown = async (signal) => {
+  console.log(`${signal} : Reçu avec succès ! arret en cours`);
+
+  try {
+    console.log("1. Arrêt du serveur HTTP...");
+    await new Promise((resolve) => server.close(resolve));
+
+    console.log("2. Déconnecter la base de données...");
+    await pool.end();
+
+    console.log("3. Fermer la file d'attente...");
+    await ticketQueue.close();
+
+    console.log("Arrête sécurité terminé !");
+    process.exit(0);
+  } catch (error) {
+    console.error("Erreur lors du gracefull shutdown :", error);
+    process.exit(1);
+  }
+};
+
+process.on("SIGINT", () => gracefullShutdown("SIGINT")); // Quand on fait Ctrl + C dans le terminal
+process.on("SIGTERM", () => gracefullShutdown("SIGTERM")); // Si on arrête via Docker

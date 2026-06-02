@@ -32,6 +32,7 @@ const worker = new Worker(
     console.log(
       `[Worker]: Tache #${task.id} terminée avec succès! PDF généré et mail envoyé`,
     );
+    client.release();
   },
   {
     connection: connexion,
