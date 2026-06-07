@@ -1,6 +1,8 @@
 const express = require("express");
 const pool = require("./config/db");
 const redisConnection = require("./config/redis");
+const loggerMiddleware = require("./middlewares/logger");
+const rateLimiter = require("./middlewares/rateLimiter");
 const { Queue } = require("bullmq");
 const dotenv = require("dotenv");
 dotenv.config();
@@ -14,6 +16,7 @@ const PORT = process.env.PORT;
 
 // Middleware JSON
 app.use(express.json());
+app.use(loggerMiddleware);
 
 const ticketQueue = new Queue("ticket-processing", {
   connection: redisConnection,
@@ -28,13 +31,7 @@ const ticketController = new TicketController(ticketService);
 app.get("/event-tickets/:id", ticketController.getTickets);
 
 // Route d'achat de billet
-app.post("/buy-tickets/:id", ticketController.buyTicket);
-
-// Middleware pour les erreurs 500
-app.use((err, res) => {
-  console.error(err);
-  res.status(500).json({ error: "Erreur serveur" });
-});
+app.post("/buy-tickets/:id", rateLimiter, ticketController.buyTicket);
 
 // Démarrage du serveur
 app.listen(PORT, () => {
