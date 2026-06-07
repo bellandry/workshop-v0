@@ -1,4 +1,4 @@
-# Ateler Workshop
+# Atelier Workshop
 
 ## Introduction à la scalabilité backend
 
