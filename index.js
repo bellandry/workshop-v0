@@ -1,168 +1,39 @@
 const express = require("express");
-const { z } = require("zod");
-const { Pool } = require("pg");
+const pool = require("./src/config/db");
+const redisConnection = require("./src/config/redis");
+const loggerMiddleware = require("./src/middlewares/logger");
+const rateLimiter = require("./src/middlewares/rateLimiter");
+const { Queue } = require("bullmq");
 const dotenv = require("dotenv");
-const util = require("util");
 dotenv.config();
 
+const TicketRepository = require("./src/repositories/ticket.repository");
+const TicketService = require("./src/services/ticket.service");
+const TicketController = require("./src/controllers/ticket.controller");
+
 const app = express();
+const PORT = process.env.PORT;
+
+// Middleware JSON
 app.use(express.json());
+app.use(loggerMiddleware);
 
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  max: 10,
+const ticketQueue = new Queue("ticket-processing", {
+  connection: redisConnection,
 });
 
-const monitorPool = () => {
-  const total = pool.totalCount;
-  const idle = pool.idleCount;
-  const waiting = pool.waitingCount;
-  const active = total - idle;
+// Injection de  l'architecture en couche
+const ticketRepository = new TicketRepository(pool, redisConnection);
+const ticketService = new TicketService(ticketRepository, pool, ticketQueue);
+const ticketController = new TicketController(ticketService);
 
-  console.clear();
-  console.log(`--- Postgres Pool Status ---`);
-  console.log(`Active Connexions      : ${active}`);
-  console.log(`Idle Connexions        : ${idle}`);
-  console.log(`Total Connexions       : ${total} / 10`);
-  console.log(`Waiting Requests       : ${waiting}`);
-  console.log(`----------- End ------------`);
-};
+// Route pour obtenir les tickets
+app.get("/event-tickets/:id", ticketController.getTickets);
 
-setInterval(monitorPool, 1000);
+// Route d'achat de billet
+app.post("/buy-tickets/:id", rateLimiter, ticketController.buyTicket);
 
-// Simulation de la génération du PDF
-const heavyPdfGeneration = (duration) => {
-  const start = Date.now();
-  while (Date.now() - start < duration) {}
-};
-
-// Simulation de l'attente réseau
-setTimeOutPromise = util.promisify(setTimeout);
-
-// schema de validation des utilisateurs
-const userSchema = z.object({
-  email: z.string().email(),
-  password: z.string().min(8).max(12),
-  age: z.number(),
-});
-
-// schema de validation d'achat de ticket
-const ticketSchema = z.object({
-  userId: z.number(),
-  quantity: z.number(),
-});
-
-// schema de validation d'achat de ticket
-const eventSchema = z.object({
-  id: z.string(),
-});
-
-// Réccupérer les utilisateurs
-app.get("/users", async (req, res) => {
-  try {
-    const result = await pool.query("SELECT * FROM users");
-    const users = result.rows;
-
-    res.json({ data: users });
-  } catch (error) {
-    res.status(500).json({ error: " Une erreur est survenue" });
-  }
-});
-
-// Créer un utilisateur
-app.post("/users", async (req, res) => {
-  try {
-    const validate = userSchema.parse(req.body);
-    const { email, password, age } = validate;
-
-    const verifUser = await pool.query("SELECT * FROM users WHERE email = $1", [
-      email,
-    ]);
-    const exist = verifUser.rows[0];
-
-    if (exist)
-      return res
-        .status(400)
-        .json({ error: "Cette adresse mail est déja utilisée" });
-
-    const result = await pool.query(
-      "INSERT INTO users(email, password, age) VALUES($1,$2, $3) RETURNING *",
-      [email, password, age],
-    );
-    const newUser = result.rows[0];
-
-    res.json({ data: newUser });
-  } catch (error) {
-    if (error instanceof z.ZodError) {
-      return res.status(400).json({ error: error.errors });
-    }
-    res
-      .status(500)
-      .json({ error: "Erreur lors de la création de l'utilisateur" });
-  }
-});
-
-app.post("/buy-ticket/:id", async (req, res) => {
-  try {
-    const validateEvent = eventSchema.parse(req.params);
-    const { id: eventId } = validateEvent;
-    const validateUser = ticketSchema.parse(req.body);
-    const { userId, quantity } = validateUser;
-
-    const checkEvent = await pool.query("SELECT * FROM events WHERE id =$1", [
-      eventId,
-    ]);
-    const event = checkEvent.rows[0];
-
-    if (!event)
-      return res.status(404).json({ error: "Evenement non trouvé !" });
-
-    const result = await pool.query("SELECT * FROM users WHERE id = $1", [
-      userId,
-    ]);
-    const user = result.rows[0];
-
-    if (!user)
-      return res.status(404).json({ error: "Utilisateur non trouvé !" });
-
-    const checkAvailability = await pool.query(
-      "SELECT total_tickets, sold_tickets FROM events WHERE id = $1",
-      [eventId],
-    );
-    const availability = checkAvailability.rows[0];
-    const available = availability.total_tickets - availability.sold_tickets;
-
-    if (quantity > available) {
-      return res
-        .status(400)
-        .json({ error: "Désolé, pas assez de billets pour cet événement" });
-    }
-
-    const newSoldTotal = availability.sold_tickets + quantity;
-    await pool.query("UPDATE events SET sold_tickets = $1 WHERE id = $2", [
-      newSoldTotal,
-      eventId,
-    ]);
-
-    // Génération de la facture en PDF, envoi par mail
-    await setTimeOutPromise(100);
-    heavyPdfGeneration(300);
-
-    res.json({
-      message: `Achat terminé avec succès pour l'événement: ${event.name}`,
-      email: user.email,
-      bought_tickets: quantity,
-    });
-  } catch (error) {
-    if (error instanceof z.ZodError) {
-      return res.status(400).json({ error: "Erreur Zod" + error.errors });
-    }
-    res.status(500).json({ error: "An error occured" });
-  }
-});
-
-const PORT = 3000;
-
+// Démarrage du serveur
 app.listen(PORT, () => {
-  console.log("Serveur démarré sur le port 3000");
+  console.log(`Le serveur est connecté sur le port ${PORT}`);
 });
