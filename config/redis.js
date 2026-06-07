@@ -6,6 +6,6 @@ const redisConfig = {
   maxRetriesPerRequest: null,
 };
 
-const connexion = new Redis(redisConfig);
+const redisConnection = new Redis(redisConfig);
 
-module.exports = connexion;
+module.exports = redisConnection;

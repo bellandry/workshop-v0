@@ -1,6 +1,6 @@
 const { Worker } = require("bullmq");
-const connexion = require("./redis");
-const pool = require("./db");
+const connexion = require("./config/redis");
+const pool = require("./config/db");
 
 // Simulation de la génération du PDF
 const heavyPdfGeneration = (duration) => {
