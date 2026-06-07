@@ -36,7 +36,14 @@ class TicketRepository {
     };
   }
 
-  async updateTicketStock(client, eventId, quantity) {
+  async updateTicketStock(client, eventId, userId, quantity) {
+    const user = await client.query(
+      "SELECT * FROM users WHERE id = $1 FOR UPDATE",
+      [userId],
+    );
+
+    if (user.rows.length === 0) throw new Error("USER_NOT_FOUND");
+
     const checkAvailability = await client.query(
       "SELECT total_tickets, sold_tickets FROM events WHERE id = $1 FOR UPDATE",
       [eventId],

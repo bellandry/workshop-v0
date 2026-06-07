@@ -73,6 +73,10 @@ class TicketController {
         return res.status(400).json({ error: "Quantité invalide" });
       }
 
+      if (error.message === "USER_NOT_FOUND") {
+        return res.status(404).json({ error: "Utilisateur non trouvé" });
+      }
+
       next(error);
     }
   };

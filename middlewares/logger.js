@@ -7,15 +7,25 @@ dotenv.config();
 const isProduction = process.env.NODE_ENV === "production";
 
 const baseLogger = pino({
-  level: isProduction ? "INFO" : "DEBUG",
+  level: "info",
   transport: !isProduction
     ? {
-        target: "pino-pretty",
-        options: {
-          colorize: true,
-          ignore: "pid,hostname",
-          translateTime: "SYS:standard",
-        },
+        targets: [
+          {
+            target: "pino/file",
+            level: "info",
+            options: {
+              destination: "./logs/app.log",
+            },
+          },
+          {
+            target: "pino/file",
+            level: "warn",
+            options: {
+              destination: "./logs/error.log",
+            },
+          },
+        ],
       }
     : undefined,
 });

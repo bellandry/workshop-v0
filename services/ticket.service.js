@@ -16,7 +16,12 @@ class TicketService {
     try {
       await client.query("BEGIN");
 
-      await this.ticketRepo.updateTicketStock(client, eventId, quantity);
+      await this.ticketRepo.updateTicketStock(
+        client,
+        eventId,
+        userId,
+        quantity,
+      );
 
       await client.query("COMMIT");
 
